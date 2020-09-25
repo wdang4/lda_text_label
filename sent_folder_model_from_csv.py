@@ -9,29 +9,30 @@ Original file is located at
 
 import pandas as pd
 import re
+import spacy
+import nltk
+from spacy.lang.en import English
+import random
+from gensim import corpora
+import pickle
+import gensim
+import pyLDAvis.gensim
+nltk.download('wordnet')
+from nltk.corpus import wordnet as wn
 
-# df = pd.read_csv('test sent export.zip', encoding='iso-8859-1')
-df = pd.read_excel('scoped sent test.xlsx')
 
-df.shape
+# df.shape
 
-scoped_df = df.iloc[-1000:]
+# scoped_df = df.iloc[-1000:]
 
-scoped_df.index
+# scoped_df.index
 
 # scoped_df.to_excel('scoped sent test.xlsx', index=False)
-
-scoped_df.iloc[0]['Body']
-
-df.iloc[-1000:]['Body']
-
-documents = df.iloc[-1000:]['Body']
-
-documents.isna().value_counts()
-
-first_doc = documents[2:3].to_list()
-
-first_doc[0]
+# scoped_df.iloc[0]['Body']
+# df.iloc[-1000:]['Body']
+# documents.isna().value_counts()
+# first_doc = documents[2:3].to_list()
+# first_doc[0]
 
 def remove_headers(email):
   scoped_email = email
@@ -79,18 +80,15 @@ def remove_sigs(email):
 def clean_email(email):
   return remove_sigs(remove_headers(remove_footers(email)))
 
-clean_email(first_doc[0])
+# clean_email(first_doc[0])
 
-cleaned_emails = [clean_email(document)for document in documents]
 
-len(cleaned_emails)
+# len(cleaned_emails)
 
-import spacy
-spacy.load('en')
-from spacy.lang.en import English
-parser = English()
+
 def tokenize(text):
     lda_tokens = []
+    parser = English()
     tokens = parser(text)
     for token in tokens:
         if token.orth_.isspace():
@@ -103,9 +101,7 @@ def tokenize(text):
             lda_tokens.append(token.lower_)
     return lda_tokens
 
-import nltk
-nltk.download('wordnet')
-from nltk.corpus import wordnet as wn
+
 def get_lemma(word):
     lemma = wn.morphy(word)
     if lemma is None:
@@ -113,57 +109,65 @@ def get_lemma(word):
     else:
         return lemma
     
-from nltk.stem.wordnet import WordNetLemmatizer
+
 def get_lemma2(word):
     return WordNetLemmatizer().lemmatize(word)
 
-nltk.download('stopwords')
-en_stop = set(nltk.corpus.stopwords.words('english'))
+
 
 def prepare_text_for_lda(text):
+    en_stop = set(nltk.corpus.stopwords.words('english'))
     tokens = tokenize(text)
     tokens = [token for token in tokens if len(token) > 4]
     tokens = [token for token in tokens if token not in en_stop]
     tokens = [get_lemma(token) for token in tokens]
     return tokens
 
-pd.Series(cleaned_emails).to_csv('body_only.csv')
+def create_tokens():
+    text_data = []
+    with open('body_only.csv') as f:
+        for line in f:
+            tokens = prepare_text_for_lda(line)
+            # if random.random() > .99:
+            if random.random() > .8:
+                print(tokens)
+                text_data.append(tokens)
+    return text_data
 
-import random
-text_data = []
-with open('body_only.csv') as f:
-    for line in f:
-        tokens = prepare_text_for_lda(line)
-        # if random.random() > .99:
-        if random.random() > .8:
-            print(tokens)
-            text_data.append(tokens)
+def create_dictionary(text_data):
+    dictionary = corpora.Dictionary(text_data)
+    corpus = [dictionary.doc2bow(text) for text in text_data]
+    pickle.dump(corpus, open('corpus.pkl', 'wb'))
+    dictionary.save('dictionary.gensim')
 
-from gensim import corpora
-dictionary = corpora.Dictionary(text_data)
-corpus = [dictionary.doc2bow(text) for text in text_data]
-import pickle
-pickle.dump(corpus, open('corpus.pkl', 'wb'))
-dictionary.save('dictionary.gensim')
+def create_topics():
+    NUM_TOPICS = 5
+    ldamodel = gensim.models.ldamodel.LdaModel(corpus, num_topics = NUM_TOPICS, id2word=dictionary, passes=15)
+    ldamodel.save('model5.gensim')
+    topics = ldamodel.print_topics(num_words=4)
+    for topic in topics:
+        print(topic)
 
-import gensim
-NUM_TOPICS = 5
-ldamodel = gensim.models.ldamodel.LdaModel(corpus, num_topics = NUM_TOPICS, id2word=dictionary, passes=15)
-ldamodel.save('model5.gensim')
-topics = ldamodel.print_topics(num_words=4)
-for topic in topics:
-    print(topic)
+# [email for email in cleaned_emails if 'following' in email][5:10]
 
-[email for email in cleaned_emails if 'following' in email][5:10]
+def visualize_topics():
+    # !pip install pyLDAvis
+    dictionary = gensim.corpora.Dictionary.load('dictionary.gensim')
+    corpus = pickle.load(open('corpus.pkl', 'rb'))
+    lda = gensim.models.ldamodel.LdaModel.load('model5.gensim')
+    lda_display = pyLDAvis.gensim.prepare(lda, corpus, dictionary, sort_topics=False)
+    pyLDAvis.display(lda_display)
 
-!pip install pyLDAvis
-
-dictionary = gensim.corpora.Dictionary.load('dictionary.gensim')
-corpus = pickle.load(open('corpus.pkl', 'rb'))
-lda = gensim.models.ldamodel.LdaModel.load('model5.gensim')
-import pyLDAvis.gensim
-lda_display = pyLDAvis.gensim.prepare(lda, corpus, dictionary, sort_topics=False)
-pyLDAvis.display(lda_display)
-
-
+def main():
+    # df = pd.read_csv('test sent export.zip', encoding='iso-8859-1')
+    df = pd.read_excel('scoped sent test.xlsx')
+    documents = df.iloc[-1000:]['Body']
+    spacy.load('en')
+    nltk.download('wordnet')
+    nltk.download('stopwords')
+    cleaned_emails = [clean_email(document) for document in documents]
+    pd.Series(cleaned_emails).to_csv('body_only.csv')
+    create_dictionary(create_tokens())
+    create_topics()
+    visualize_topics()
 
